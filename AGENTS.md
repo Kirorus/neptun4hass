@@ -14,7 +14,7 @@ neptun4hass/
 │   └── release.yml                  # Авто GitHub Release при push тега vX.Y.Z
 ├── custom_components/neptun4hass/   # Интеграция HA
 │   ├── __init__.py                  # async_setup_entry / async_unload_entry
-│   ├── manifest.json                # domain: neptun4hass, version: 1.0.2
+│   ├── manifest.json                # domain: neptun4hass, version: 1.0.3
 │   ├── config_flow.py               # UI: обязательные IP+Name → проверка → MAC как unique_id
 │   ├── const.py                     # DOMAIN, порт, типы пакетов, теги, статус-маска
 │   ├── neptun_client.py             # Async TCP клиент протокола Neptun (ядро)
