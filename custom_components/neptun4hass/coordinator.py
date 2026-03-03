@@ -6,6 +6,7 @@ import asyncio
 from datetime import timedelta
 from datetime import datetime, timezone
 import logging
+import time
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_SCAN_INTERVAL
@@ -62,6 +63,25 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
         self._limited_access_logged = False
         self.last_denied_requests: list[str] = []
         self.last_denied_at: str | None = None
+        self._last_success_monotonic: float | None = None
+
+    async def _get_system_state_with_retries(self) -> DeviceData:
+        """Get SYSTEM_STATE with a few retries.
+
+        The device can return transient `Empty response` when another client
+        is connected or when connections happen too close together.
+        """
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                return await self.client.get_system_state()
+            except NeptunConnectionError as err:
+                last_err = err
+                if attempt < 2:
+                    await asyncio.sleep(0.7)
+                    continue
+                raise
+        raise NeptunConnectionError(str(last_err) if last_err else "Unknown error")
 
     def _schedule_registry_sync(self, low_mask: int, mac: str) -> None:
         """Sync entity registry and reload entry if needed."""
@@ -99,7 +119,7 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
             )
 
             if need_full:
-                device = await self.client.get_system_state()
+                device = await self._get_system_state_with_retries()
 
                 # Try to pull names/values/states, but do not fail the update if
                 # the device denies access.
@@ -153,14 +173,14 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
                 self._names_cached = True
                 self._fast_cycles_since_full = 0
             else:
-                device = await self.client.get_system_state()
+                device = await self._get_system_state_with_retries()
 
                 # If wireless sensor count changed (e.g. a new sensor was added),
                 # run a full refresh to re-sync sensor names and list.
                 if self.data is not None:
                     prev_count = len(self.data.wireless_sensors)
                     if device.sensor_count != prev_count:
-                        device = await self.client.get_system_state()
+                        device = await self._get_system_state_with_retries()
                         self._names_cached = False
                         self._fast_cycles_since_full = refresh_every  # force full next
                     else:
@@ -192,7 +212,7 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
                         self._fast_cycles_since_full += 1
                 else:
                     # No previous cache, do a full refresh next.
-                    device = await self.client.get_system_state()
+                    device = await self._get_system_state_with_retries()
                     self._names_cached = False
                     self._fast_cycles_since_full = refresh_every
 
@@ -208,6 +228,8 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
             self.last_denied_at = (
                 datetime.now(timezone.utc).isoformat() if denied_unique else None
             )
+
+            self._last_success_monotonic = time.monotonic()
 
             if denied and not self._limited_access_logged:
                 _LOGGER.warning(
