@@ -56,6 +56,10 @@
 
 Интеграция проверит подключение, получит MAC-адрес (уникальный идентификатор) и создаст все сущности автоматически. Для нескольких устройств — добавьте интеграцию повторно с другим IP.
 
+`entity_id` формируется с префиксом имени из настройки, например:
+- `switch.neptune_prow_valve`
+- `switch.neptune_prow_cleaning_mode`
+
 ## Сущности
 
 ### Переключатели (switch)
@@ -91,7 +95,7 @@ automation:
   - alias: "Протечка"
     trigger:
       - platform: state
-        entity_id: binary_sensor.neptun_alarm
+        entity_id: binary_sensor.neptune_prow_alarm
         to: "on"
     action:
       - service: notify.mobile_app
@@ -107,12 +111,12 @@ automation:
   - alias: "Таймер уборки"
     trigger:
       - platform: state
-        entity_id: switch.neptun_cleaning_mode
+        entity_id: switch.neptune_prow_cleaning_mode
         to: "on"
         for: "02:00:00"
     action:
       - service: switch.turn_off
-        entity_id: switch.neptun_cleaning_mode
+        entity_id: switch.neptune_prow_cleaning_mode
 ```
 
 ### Низкий заряд батареи датчика
@@ -122,7 +126,7 @@ automation:
   - alias: "Батарея датчика"
     trigger:
       - platform: numeric_state
-        entity_id: sensor.neptun_wireless_battery_0
+        entity_id: sensor.neptune_prow_wl_hallway_battery
         below: 20
     action:
       - service: notify.mobile_app
@@ -154,6 +158,19 @@ python3 test_client.py <IP> 6350
 | Пустые имена датчиков | Задайте имена в мобильном приложении Neptun |
 | Счётчики воды = 0 | Линия должна быть настроена как «счётчик» в устройстве |
 | "Empty response" в логах | Другой клиент (приложение, neptun2mqtt) занимает соединение. Используйте один клиент |
+
+## Релизы для HACS
+
+HACS показывает обновления по новым версиям из GitHub Release/тегов.
+
+1. Обновите версию в `custom_components/neptun4hass/manifest.json` (например, `1.0.2`)
+2. Сделайте commit и push в `main`
+3. Создайте тег той же версии с префиксом `v` и отправьте его:
+   - `git tag v1.0.2`
+   - `git push origin v1.0.2`
+4. Workflow `.github/workflows/release.yml` автоматически создаст GitHub Release
+
+Важно: версия в теге и `manifest.json` должна совпадать (`v1.0.2` -> `1.0.2`), иначе релиз не будет создан.
 
 ## Лицензия
 
