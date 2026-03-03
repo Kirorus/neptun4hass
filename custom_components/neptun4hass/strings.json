@@ -30,7 +30,8 @@
           "line_3_counter": "Line 3: Water counter",
           "line_4_counter": "Line 4: Water counter",
           "close_on_offline": "Close valve if wireless sensors offline",
-          "scan_interval": "Polling interval (seconds)"
+          "scan_interval": "Polling interval (seconds)",
+          "full_refresh_cycles": "Full refresh every N polls"
         }
       }
     },
@@ -40,6 +41,8 @@
       "cannot_confirm": "Settings were sent but the device did not confirm them in time. Please try again.",
       "scan_interval_min": "Polling interval must be at least 5 seconds.",
       "invalid_scan_interval": "Invalid polling interval.",
+      "full_refresh_min": "Full refresh cycle must be at least 1.",
+      "invalid_full_refresh": "Invalid full refresh cycle value.",
       "unknown": "An unexpected error occurred."
     }
   }

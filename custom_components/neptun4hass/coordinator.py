@@ -11,7 +11,14 @@ from homeassistant.const import CONF_HOST, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN, MIN_SCAN_INTERVAL
+from .const import (
+    CONF_FULL_REFRESH_CYCLES,
+    DEFAULT_FULL_REFRESH_CYCLES,
+    DEFAULT_PORT,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    MIN_SCAN_INTERVAL,
+)
 from .neptun_client import DeviceData, NeptunClient, NeptunConnectionError
 from .registry import async_sync_wired_line_entities
 
@@ -41,6 +48,7 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
             port=entry.data.get("port", DEFAULT_PORT),
         )
         self._names_cached = False
+        self._fast_cycles_since_full = 0
         self._last_wired_mask: int | None = None
         self._sync_task: asyncio.Task | None = None
 
@@ -63,24 +71,54 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
     async def _async_update_data(self) -> DeviceData:
         """Fetch data from device."""
         try:
-            if not self._names_cached:
+            refresh_every = int(
+                self.config_entry.options.get(
+                    CONF_FULL_REFRESH_CYCLES,
+                    DEFAULT_FULL_REFRESH_CYCLES,
+                )
+            )
+            if refresh_every < 1:
+                refresh_every = 1
+
+            need_full = (
+                not self._names_cached
+                or refresh_every == 1
+                or self._fast_cycles_since_full >= (refresh_every - 1)
+            )
+
+            if need_full:
                 device = await self.client.get_full_state()
                 self._names_cached = True
+                self._fast_cycles_since_full = 0
             else:
                 device = await self.client.get_system_state()
-                await asyncio.sleep(0.5)
-                await self.client.get_counter_values(device)
-                # Preserve cached names from previous full state
+
+                # If wireless sensor count changed (e.g. a new sensor was added),
+                # run a full refresh to re-sync sensor names and list.
                 if self.data is not None:
-                    for idx in range(4):
-                        device.wired_sensors[idx].name = self.data.wired_sensors[idx].name
-                        device.wired_sensors[idx].line_type = (
-                            "counter" if device.line_in_config & (1 << idx) else "sensor"
-                        )
-                if device.sensor_count > 0 and self.data is not None:
-                    device.wireless_sensors = list(self.data.wireless_sensors)
-                    await asyncio.sleep(0.5)
-                    await self.client.get_sensor_states(device)
+                    prev_count = len(self.data.wireless_sensors)
+                    if device.sensor_count != prev_count:
+                        device = await self.client.get_full_state()
+                        self._names_cached = True
+                        self._fast_cycles_since_full = 0
+                    else:
+                        await asyncio.sleep(0.5)
+                        await self.client.get_counter_values(device)
+                        # Preserve cached names from previous full state
+                        for idx in range(4):
+                            device.wired_sensors[idx].name = self.data.wired_sensors[idx].name
+                            device.wired_sensors[idx].line_type = (
+                                "counter" if device.line_in_config & (1 << idx) else "sensor"
+                            )
+                        if device.sensor_count > 0:
+                            device.wireless_sensors = list(self.data.wireless_sensors)
+                            await asyncio.sleep(0.5)
+                            await self.client.get_sensor_states(device)
+                        self._fast_cycles_since_full += 1
+                else:
+                    device = await self.client.get_full_state()
+                    self._names_cached = True
+                    self._fast_cycles_since_full = 0
             low_mask = device.line_in_config & 0x0F
             if self._last_wired_mask is None:
                 self._last_wired_mask = low_mask

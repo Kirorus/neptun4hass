@@ -15,7 +15,9 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_CLOSE_ON_OFFLINE,
+    CONF_FULL_REFRESH_CYCLES,
     CONF_LINE_IN_CONFIG,
+    DEFAULT_FULL_REFRESH_CYCLES,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -165,6 +167,15 @@ class Neptun4hassOptionsFlow(OptionsFlow):
             if scan_interval < MIN_SCAN_INTERVAL:
                 errors[CONF_SCAN_INTERVAL] = "scan_interval_min"
 
+            try:
+                full_refresh_cycles = int(user_input[CONF_FULL_REFRESH_CYCLES])
+            except (TypeError, ValueError):
+                errors[CONF_FULL_REFRESH_CYCLES] = "invalid_full_refresh"
+                full_refresh_cycles = DEFAULT_FULL_REFRESH_CYCLES
+
+            if full_refresh_cycles < 1:
+                errors[CONF_FULL_REFRESH_CYCLES] = "full_refresh_min"
+
             requested_low_mask = _mask_from_user_input(user_input)
             requested_close = bool(user_input.get(CONF_CLOSE_ON_OFFLINE, False))
 
@@ -246,6 +257,7 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                     new_options[CONF_LINE_IN_CONFIG] = requested_low_mask & 0x0F
                     new_options[CONF_CLOSE_ON_OFFLINE] = requested_close
                     new_options[CONF_SCAN_INTERVAL] = scan_interval
+                    new_options[CONF_FULL_REFRESH_CYCLES] = full_refresh_cycles
                     return self.async_create_entry(title="", data=new_options)
             except NeptunConnectionError:
                 prev_mask = self._config_entry.options.get(CONF_LINE_IN_CONFIG)
@@ -255,6 +267,7 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                 ):
                     new_options = dict(self._config_entry.options)
                     new_options[CONF_SCAN_INTERVAL] = scan_interval
+                    new_options[CONF_FULL_REFRESH_CYCLES] = full_refresh_cycles
                     return self.async_create_entry(title="", data=new_options)
 
                 errors["base"] = "cannot_connect"
@@ -271,8 +284,16 @@ class Neptun4hassOptionsFlow(OptionsFlow):
         default_mask = int(self._config_entry.options.get(CONF_LINE_IN_CONFIG, 0))
         default_close = bool(self._config_entry.options.get(CONF_CLOSE_ON_OFFLINE, False))
         default_scan = int(self._config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+        default_full = int(
+            self._config_entry.options.get(
+                CONF_FULL_REFRESH_CYCLES,
+                DEFAULT_FULL_REFRESH_CYCLES,
+            )
+        )
         if default_scan < MIN_SCAN_INTERVAL:
             default_scan = MIN_SCAN_INTERVAL
+        if default_full < 1:
+            default_full = 1
 
         client, should_close = self._get_client()
         try:
@@ -299,6 +320,10 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                 vol.Required(CONF_LINE_4_COUNTER, default=defaults[CONF_LINE_4_COUNTER]): bool,
                 vol.Required(CONF_CLOSE_ON_OFFLINE, default=default_close): bool,
                 vol.Required(CONF_SCAN_INTERVAL, default=default_scan): vol.Coerce(int),
+                vol.Required(
+                    CONF_FULL_REFRESH_CYCLES,
+                    default=default_full,
+                ): vol.Coerce(int),
             }
         )
 
