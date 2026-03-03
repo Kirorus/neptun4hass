@@ -30,7 +30,76 @@ jobs:
             exit 1
           fi
 
+      - name: Build Release Notes
+        id: notes
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+
+          repository = os.environ["GITHUB_REPOSITORY"]
+          tag_name = os.environ["GITHUB_REF_NAME"]
+
+          def run_git(*args: str) -> str:
+              return subprocess.check_output(("git", *args), text=True).strip()
+
+          def normalize_tag_message(raw_text: str, tag: str) -> str:
+              lines = [line.rstrip() for line in raw_text.splitlines()]
+              message = "\n".join(line for line in lines if line.strip())
+              if not message or message == tag:
+                  return ""
+              return message
+
+          def subject_to_note(subject: str) -> str:
+              prefixes = {
+                  "feat:": "Added",
+                  "fix:": "Fixed",
+                  "docs:": "Docs",
+                  "refactor:": "Refactor",
+                  "test:": "Tests",
+                  "ci:": "CI",
+                  "chore:": "Maintenance",
+              }
+              for prefix, label in prefixes.items():
+                  if subject.startswith(prefix):
+                      text = subject[len(prefix):].strip()
+                      return f"{label}: {text}" if text else label
+              return subject
+
+          tag_message_raw = run_git("for-each-ref", f"refs/tags/{tag_name}", "--format=%(contents)")
+          tag_message = normalize_tag_message(tag_message_raw, tag_name)
+
+          if tag_message:
+              release_body = (
+                  f"{tag_message}\n\n"
+                  f"**Changes**: https://github.com/{repository}/commits/{tag_name}\n"
+              )
+          else:
+              tag_list = run_git("tag", "--sort=-version:refname").splitlines()
+              previous_tag = next((item for item in tag_list if item != tag_name), "")
+              log_range = f"{previous_tag}..{tag_name}" if previous_tag else tag_name
+
+              commit_subjects_raw = run_git("log", "--pretty=format:%s", log_range)
+              commit_subjects = [line for line in commit_subjects_raw.splitlines() if line][:8]
+              bullets = [f"- {subject_to_note(subject)}" for subject in commit_subjects]
+              if not bullets:
+                  bullets = ["- Internal updates"]
+
+              compare_url = (
+                  f"https://github.com/{repository}/compare/{previous_tag}...{tag_name}"
+                  if previous_tag
+                  else f"https://github.com/{repository}/commits/{tag_name}"
+              )
+              release_body = "## Highlights\n\n" + "\n".join(bullets) + f"\n\n**Changes**: {compare_url}\n"
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write("release_body<<EOF\n")
+              output.write(release_body)
+              output.write("EOF\n")
+          PY
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.release_body }}
