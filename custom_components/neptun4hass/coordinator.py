@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from datetime import datetime, timezone
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -59,6 +60,8 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
         self._last_wired_mask: int | None = None
         self._sync_task: asyncio.Task | None = None
         self._limited_access_logged = False
+        self.last_denied_requests: list[str] = []
+        self.last_denied_at: str | None = None
 
     def _schedule_registry_sync(self, low_mask: int, mac: str) -> None:
         """Sync entity registry and reload entry if needed."""
@@ -198,6 +201,12 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
                 self.config_entry,
                 denied,
                 access_flag=device.access,
+            )
+
+            denied_unique = sorted(set(denied))
+            self.last_denied_requests = denied_unique
+            self.last_denied_at = (
+                datetime.now(timezone.utc).isoformat() if denied_unique else None
             )
 
             if denied and not self._limited_access_logged:
