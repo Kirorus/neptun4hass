@@ -7,11 +7,11 @@ from datetime import timedelta
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST
+from homeassistant.const import CONF_HOST, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN, MIN_SCAN_INTERVAL
 from .neptun_client import DeviceData, NeptunClient, NeptunConnectionError
 from .registry import async_sync_wired_line_entities
 
@@ -26,11 +26,14 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
     config_entry: NeptunConfigEntry
 
     def __init__(self, hass: HomeAssistant, entry: NeptunConfigEntry) -> None:
+        scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+        if scan_interval < MIN_SCAN_INTERVAL:
+            scan_interval = MIN_SCAN_INTERVAL
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{entry.data[CONF_HOST]}",
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
             config_entry=entry,
         )
         self.client = NeptunClient(

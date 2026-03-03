@@ -8,16 +8,17 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_NAME, CONF_SCAN_INTERVAL
 from homeassistant.core import callback
 
-from .const import DEFAULT_PORT, DOMAIN
+from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN, MIN_SCAN_INTERVAL
 from .neptun_client import NeptunClient, NeptunConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
 
 CONF_LINE_IN_CONFIG = "line_in_config"
+CONF_CLOSE_ON_OFFLINE = "close_on_offline"
 CONF_LINE_1_COUNTER = "line_1_counter"
 CONF_LINE_2_COUNTER = "line_2_counter"
 CONF_LINE_3_COUNTER = "line_3_counter"
@@ -146,7 +147,21 @@ class Neptun4hassOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            try:
+                scan_interval = int(user_input[CONF_SCAN_INTERVAL])
+            except (TypeError, ValueError):
+                errors[CONF_SCAN_INTERVAL] = "invalid_scan_interval"
+                scan_interval = DEFAULT_SCAN_INTERVAL
+
+            if scan_interval < MIN_SCAN_INTERVAL:
+                errors[CONF_SCAN_INTERVAL] = "scan_interval_min"
+
             requested_low_mask = _mask_from_user_input(user_input)
+            requested_close = bool(user_input.get(CONF_CLOSE_ON_OFFLINE, False))
+
+            if errors:
+                return await self._show_form(errors)
+
             client, should_close = self._get_client()
 
             try:
@@ -157,25 +172,38 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                 await client.set_state(
                     valve_open=current.valve_open,
                     cleaning_mode=current.cleaning_mode,
-                    close_on_offline=current.close_on_offline,
+                    close_on_offline=requested_close,
                     line_in_config=desired_mask,
                 )
 
                 applied = False
                 for _ in range(3):
                     updated = await client.get_system_state()
-                    if (updated.line_in_config & 0x0F) == (requested_low_mask & 0x0F):
+                    if (
+                        (updated.line_in_config & 0x0F) == (requested_low_mask & 0x0F)
+                        and updated.close_on_offline == requested_close
+                    ):
                         applied = True
                         break
 
                 if not applied:
                     errors["base"] = "cannot_apply"
                 else:
-                    return self.async_create_entry(
-                        title="",
-                        data={CONF_LINE_IN_CONFIG: requested_low_mask & 0x0F},
-                    )
+                    new_options = dict(self._config_entry.options)
+                    new_options[CONF_LINE_IN_CONFIG] = requested_low_mask & 0x0F
+                    new_options[CONF_CLOSE_ON_OFFLINE] = requested_close
+                    new_options[CONF_SCAN_INTERVAL] = scan_interval
+                    return self.async_create_entry(title="", data=new_options)
             except NeptunConnectionError:
+                prev_mask = self._config_entry.options.get(CONF_LINE_IN_CONFIG)
+                prev_close = self._config_entry.options.get(CONF_CLOSE_ON_OFFLINE)
+                if prev_mask == (requested_low_mask & 0x0F) and (
+                    prev_close is None or prev_close == requested_close
+                ):
+                    new_options = dict(self._config_entry.options)
+                    new_options[CONF_SCAN_INTERVAL] = scan_interval
+                    return self.async_create_entry(title="", data=new_options)
+
                 errors["base"] = "cannot_connect"
             except Exception:
                 _LOGGER.exception("Unexpected error while applying options")
@@ -184,11 +212,20 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                 if should_close:
                     await client.close()
 
+        return await self._show_form(errors)
+
+    async def _show_form(self, errors: dict[str, str]) -> ConfigFlowResult:
         default_mask = int(self._config_entry.options.get(CONF_LINE_IN_CONFIG, 0))
+        default_close = bool(self._config_entry.options.get(CONF_CLOSE_ON_OFFLINE, False))
+        default_scan = int(self._config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+        if default_scan < MIN_SCAN_INTERVAL:
+            default_scan = MIN_SCAN_INTERVAL
+
         client, should_close = self._get_client()
         try:
             device = await client.get_system_state()
             default_mask = device.line_in_config & 0x0F
+            default_close = device.close_on_offline
         except NeptunConnectionError:
             if not errors:
                 errors["base"] = "cannot_connect"
@@ -207,6 +244,8 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                 vol.Required(CONF_LINE_2_COUNTER, default=defaults[CONF_LINE_2_COUNTER]): bool,
                 vol.Required(CONF_LINE_3_COUNTER, default=defaults[CONF_LINE_3_COUNTER]): bool,
                 vol.Required(CONF_LINE_4_COUNTER, default=defaults[CONF_LINE_4_COUNTER]): bool,
+                vol.Required(CONF_CLOSE_ON_OFFLINE, default=default_close): bool,
+                vol.Required(CONF_SCAN_INTERVAL, default=default_scan): vol.Coerce(int),
             }
         )
 

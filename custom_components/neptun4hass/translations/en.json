@@ -22,19 +22,23 @@
   "options": {
     "step": {
       "init": {
-        "title": "Wired lines",
-        "description": "Select which wired lines are used as water counters. Off = wired leak sensor. Changes are applied to the device and the integration will be reloaded.",
+        "title": "Settings",
+        "description": "Configure wired line modes, device behavior, and polling interval. Device-related changes are applied to the device and the integration will be reloaded.",
         "data": {
           "line_1_counter": "Line 1: Water counter",
           "line_2_counter": "Line 2: Water counter",
           "line_3_counter": "Line 3: Water counter",
-          "line_4_counter": "Line 4: Water counter"
+          "line_4_counter": "Line 4: Water counter",
+          "close_on_offline": "Close valve if wireless sensors offline",
+          "scan_interval": "Polling interval (seconds)"
         }
       }
     },
     "error": {
       "cannot_connect": "Cannot connect to the device. Check the IP address and ensure the device is online.",
       "cannot_apply": "Failed to apply settings to the device.",
+      "scan_interval_min": "Polling interval must be at least 5 seconds.",
+      "invalid_scan_interval": "Invalid polling interval.",
       "unknown": "An unexpected error occurred."
     }
   }
