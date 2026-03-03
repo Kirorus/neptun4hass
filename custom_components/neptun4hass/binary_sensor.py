@@ -6,7 +6,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import STATUS_ALARM
@@ -44,8 +44,7 @@ class NeptunAlarmSensor(NeptunEntity, BinarySensorEntity):
     _attr_translation_key = "alarm"
 
     def __init__(self, coordinator: NeptunCoordinator) -> None:
-        super().__init__(coordinator, "alarm")
-        self._attr_name = "Alarm"
+        super().__init__(coordinator, "alarm", "Alarm")
 
     @property
     def is_on(self) -> bool | None:
@@ -61,10 +60,13 @@ class NeptunWiredSensor(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
 
     def __init__(self, coordinator: NeptunCoordinator, index: int) -> None:
-        super().__init__(coordinator, f"wired_sensor_{index}")
-        self._index = index
         sensor = coordinator.data.wired_sensors[index]
-        self._attr_name = sensor.name or f"Wired sensor {index + 1}"
+        super().__init__(
+            coordinator,
+            f"wired_sensor_{index}",
+            sensor.name or f"Wired sensor {index + 1}",
+        )
+        self._index = index
 
     @property
     def is_on(self) -> bool | None:
@@ -80,10 +82,13 @@ class NeptunWirelessSensor(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
 
     def __init__(self, coordinator: NeptunCoordinator, index: int) -> None:
-        super().__init__(coordinator, f"wireless_sensor_{index}")
-        self._index = index
         sensor = coordinator.data.wireless_sensors[index]
-        self._attr_name = sensor.name or f"Wireless sensor {index + 1}"
+        super().__init__(
+            coordinator,
+            f"wireless_sensor_{index}",
+            sensor.name or f"Wireless sensor {index + 1}",
+        )
+        self._index = index
 
     @property
     def is_on(self) -> bool | None:

@@ -72,10 +72,13 @@ class NeptunWaterCounter(NeptunEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
 
     def __init__(self, coordinator: NeptunCoordinator, index: int) -> None:
-        super().__init__(coordinator, f"counter_{index}")
-        self._index = index
         sensor = coordinator.data.wired_sensors[index]
-        self._attr_name = sensor.name or f"Counter {index + 1}"
+        super().__init__(
+            coordinator,
+            f"counter_{index}",
+            sensor.name or f"Counter {index + 1}",
+        )
+        self._index = index
 
     @property
     def native_value(self) -> float | None:
@@ -94,10 +97,13 @@ class NeptunWirelessSignal(NeptunEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: NeptunCoordinator, index: int) -> None:
-        super().__init__(coordinator, f"wireless_signal_{index}")
-        self._index = index
         sensor = coordinator.data.wireless_sensors[index]
-        self._attr_name = f"{sensor.name or f'Wireless {index + 1}'} Signal"
+        super().__init__(
+            coordinator,
+            f"wireless_signal_{index}",
+            f"{sensor.name or f'Wireless {index + 1}'} Signal",
+        )
+        self._index = index
 
     @property
     def native_value(self) -> int | None:
@@ -117,10 +123,13 @@ class NeptunWirelessBattery(NeptunEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: NeptunCoordinator, index: int) -> None:
-        super().__init__(coordinator, f"wireless_battery_{index}")
-        self._index = index
         sensor = coordinator.data.wireless_sensors[index]
-        self._attr_name = f"{sensor.name or f'Wireless {index + 1}'} Battery"
+        super().__init__(
+            coordinator,
+            f"wireless_battery_{index}",
+            f"{sensor.name or f'Wireless {index + 1}'} Battery",
+        )
+        self._index = index
 
     @property
     def native_value(self) -> int | None:
@@ -138,8 +147,7 @@ class NeptunStatusSensor(NeptunEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: NeptunCoordinator) -> None:
-        super().__init__(coordinator, "status")
-        self._attr_name = "Status"
+        super().__init__(coordinator, "status", "Status")
 
     @property
     def native_value(self) -> str | None:

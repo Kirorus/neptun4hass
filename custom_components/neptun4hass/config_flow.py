@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
-        vol.Optional(CONF_NAME): str,
+        vol.Required(CONF_NAME): str,
     }
 )
 
@@ -36,6 +36,15 @@ class Neptun4hassConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             host = user_input[CONF_HOST]
+            name = user_input[CONF_NAME].strip()
+            if not name:
+                errors[CONF_NAME] = "name_required"
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=STEP_USER_DATA_SCHEMA,
+                    errors=errors,
+                )
+
             client = NeptunClient(host, DEFAULT_PORT)
 
             try:
@@ -53,11 +62,11 @@ class Neptun4hassConfigFlow(ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(mac)
                     self._abort_if_unique_id_configured()
 
-                    name = user_input.get(CONF_NAME) or device.name or f"Neptun {host}"
                     return self.async_create_entry(
                         title=name,
                         data={
                             CONF_HOST: host,
+                            CONF_NAME: name,
                             "port": DEFAULT_PORT,
                         },
                     )

@@ -33,8 +33,7 @@ class NeptunValveSwitch(NeptunEntity, SwitchEntity):
     _attr_icon = "mdi:valve"
 
     def __init__(self, coordinator: NeptunCoordinator) -> None:
-        super().__init__(coordinator, "valve")
-        self._attr_name = "Valve"
+        super().__init__(coordinator, "valve", "Valve")
 
     @property
     def is_on(self) -> bool | None:
@@ -74,8 +73,7 @@ class NeptunCleaningSwitch(NeptunEntity, SwitchEntity):
     _attr_icon = "mdi:spray-bottle"
 
     def __init__(self, coordinator: NeptunCoordinator) -> None:
-        super().__init__(coordinator, "cleaning_mode")
-        self._attr_name = "Cleaning mode"
+        super().__init__(coordinator, "cleaning_mode", "Cleaning mode")
 
     @property
     def is_on(self) -> bool | None:
