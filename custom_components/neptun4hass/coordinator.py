@@ -52,7 +52,9 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
                 if self.data is not None:
                     for idx in range(4):
                         device.wired_sensors[idx].name = self.data.wired_sensors[idx].name
-                        device.wired_sensors[idx].line_type = self.data.wired_sensors[idx].line_type
+                        device.wired_sensors[idx].line_type = (
+                            "counter" if device.line_in_config & (1 << idx) else "sensor"
+                        )
                 if device.sensor_count > 0 and self.data is not None:
                     device.wireless_sensors = list(self.data.wireless_sensors)
                     await asyncio.sleep(0.5)

@@ -25,6 +25,8 @@ PORT = 6350
 # Mutable device state
 valve = 0x00
 dry = 0x00
+cl_valve = 0x00
+line_in_config = 0x03
 
 
 def crc16(data: bytes | bytearray) -> bytes:
@@ -70,7 +72,18 @@ def build_system_state_body() -> bytes:
 
     # Tag 0x53: main state — 7 bytes:
     # valve_open, sensor_count, relay_count, flag_dry, flag_cl_valve, line_in_config, status
-    body += bytes([0x53, 0x00, 0x07, valve, 0x02, 0x01, dry, 0x00, 0x03, 0x00])
+    body += bytes([
+        0x53,
+        0x00,
+        0x07,
+        valve,
+        0x02,
+        0x01,
+        dry,
+        cl_valve,
+        line_in_config,
+        0x00,
+    ])
 
     # Tag 0x73: wired line states — 4 bytes (0=dry, 1=wet)
     body += bytes([0x73, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00])
@@ -157,7 +170,7 @@ def build_sensor_states_body() -> bytes:
 
 
 def handle_request(data: bytes) -> bytes | None:
-    global valve, dry
+    global valve, dry, cl_valve, line_in_config
 
     if len(data) < 8:
         return None
@@ -165,7 +178,9 @@ def handle_request(data: bytes) -> bytes | None:
     packet_type = data[3]
 
     if packet_type == 0x52:  # SYSTEM_STATE
-        print(f"  -> SYSTEM_STATE (valve={valve}, dry={dry})")
+        print(
+            f"  -> SYSTEM_STATE (valve={valve}, dry={dry}, cl_valve={cl_valve}, line_in_config=0x{line_in_config:02X})"
+        )
         return make_packet(0x52, build_system_state_body())
 
     if packet_type == 0x63:  # COUNTER_NAME
@@ -188,7 +203,11 @@ def handle_request(data: bytes) -> bytes | None:
         if len(data) >= 13:
             valve = data[9]
             dry = data[10]
-            print(f"  -> SET_STATE: valve={valve}, dry={dry}")
+            cl_valve = data[11]
+            line_in_config = data[12]
+            print(
+                f"  -> SET_STATE: valve={valve}, dry={dry}, cl_valve={cl_valve}, line_in_config=0x{line_in_config:02X}"
+            )
         return make_packet(0x00, b"")
 
     print(f"  -> UNKNOWN type 0x{packet_type:02X}")

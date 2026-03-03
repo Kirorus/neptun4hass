@@ -133,6 +133,7 @@ class NeptunClient:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
+        self._last_disconnect: float | None = None
 
     @property
     def host(self) -> str:
@@ -150,6 +151,14 @@ class NeptunClient:
                 f"Cannot connect to {self._host}:{self._port}"
             ) from err
 
+    async def _ensure_request_delay(self) -> None:
+        """Ensure a minimum delay between consecutive connections."""
+        if self._last_disconnect is None:
+            return
+        elapsed = asyncio.get_running_loop().time() - self._last_disconnect
+        if elapsed < REQUEST_DELAY:
+            await asyncio.sleep(REQUEST_DELAY - elapsed)
+
     async def _disconnect(self) -> None:
         """Close TCP connection."""
         if self._writer is not None:
@@ -165,6 +174,7 @@ class NeptunClient:
     async def _send_and_receive(self, request: bytearray) -> bytearray:
         """Send request and read response."""
         async with self._lock:
+            await self._ensure_request_delay()
             await self._connect()
             try:
                 self._writer.write(request)
@@ -187,16 +197,19 @@ class NeptunClient:
                 return data
             finally:
                 await self._disconnect()
+                self._last_disconnect = asyncio.get_running_loop().time()
 
     async def _send_only(self, request: bytearray) -> None:
         """Send request without waiting for response (fire-and-forget)."""
         async with self._lock:
+            await self._ensure_request_delay()
             await self._connect()
             try:
                 self._writer.write(request)
                 await self._writer.drain()
             finally:
                 await self._disconnect()
+                self._last_disconnect = asyncio.get_running_loop().time()
 
     def _parse_system_state(self, data: bytearray, device: DeviceData) -> None:
         """Parse SYSTEM_STATE response with TLV tags."""

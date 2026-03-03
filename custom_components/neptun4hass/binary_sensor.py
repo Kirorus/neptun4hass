@@ -26,9 +26,10 @@ async def async_setup_entry(
     # Alarm sensor
     entities.append(NeptunAlarmSensor(coordinator))
 
-    # Wired sensors (always 4 lines)
+    # Wired leak sensors (only lines configured as sensors)
     for idx in range(4):
-        entities.append(NeptunWiredSensor(coordinator, idx))
+        if coordinator.data.wired_sensors[idx].line_type == "sensor":
+            entities.append(NeptunWiredSensor(coordinator, idx))
 
     # Wireless sensors
     for idx in range(len(coordinator.data.wireless_sensors)):

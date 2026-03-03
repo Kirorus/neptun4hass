@@ -18,5 +18,24 @@
     "abort": {
       "already_configured": "This device is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wired lines",
+        "description": "Select which wired lines are used as water counters. Off = wired leak sensor. Changes are applied to the device and the integration will be reloaded.",
+        "data": {
+          "line_1_counter": "Line 1: Water counter",
+          "line_2_counter": "Line 2: Water counter",
+          "line_3_counter": "Line 3: Water counter",
+          "line_4_counter": "Line 4: Water counter"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the device. Check the IP address and ensure the device is online.",
+      "cannot_apply": "Failed to apply settings to the device.",
+      "unknown": "An unexpected error occurred."
+    }
   }
 }
