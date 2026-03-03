@@ -189,30 +189,41 @@ class NeptunClient:
     async def _send_and_receive(self, request: bytearray) -> bytearray:
         """Send request and read response."""
         async with self._lock:
-            await self._ensure_request_delay()
-            await self._connect()
-            try:
-                self._writer.write(request)
-                await self._writer.drain()
+            last_err: Exception | None = None
+            for attempt in range(2):
+                await self._ensure_request_delay()
+                await self._connect()
+                try:
+                    self._writer.write(request)
+                    await self._writer.drain()
 
-                data = await asyncio.wait_for(
-                    self._reader.read(SOCKET_BUFSIZE),
-                    timeout=READ_TIMEOUT,
-                )
-                if not data:
-                    raise NeptunConnectionError("Empty response")
+                    data = await asyncio.wait_for(
+                        self._reader.read(SOCKET_BUFSIZE),
+                        timeout=READ_TIMEOUT,
+                    )
+                    if not data:
+                        raise NeptunConnectionError("Empty response")
 
-                data = bytearray(data)
-                if len(data) < 4:
-                    raise NeptunConnectionError("Response too short")
+                    data = bytearray(data)
+                    if len(data) < 4:
+                        raise NeptunConnectionError("Response too short")
 
-                if not _crc16_check(data):
-                    raise NeptunConnectionError("CRC check failed")
+                    if not _crc16_check(data):
+                        raise NeptunConnectionError("CRC check failed")
 
-                return data
-            finally:
-                await self._disconnect()
-                self._last_disconnect = asyncio.get_running_loop().time()
+                    return data
+                except NeptunConnectionError as err:
+                    last_err = err
+                    if attempt == 0 and str(err) in {"Empty response", "Response too short"}:
+                        _LOGGER.debug("Retrying request after %s", err)
+                        continue
+                    raise
+                finally:
+                    await self._disconnect()
+                    self._last_disconnect = asyncio.get_running_loop().time()
+
+            # Should not happen, but keep mypy happy.
+            raise NeptunConnectionError(str(last_err) if last_err else "Unknown error")
 
     async def _send_only(self, request: bytearray) -> None:
         """Send request without waiting for response (fire-and-forget)."""
