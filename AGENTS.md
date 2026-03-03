@@ -10,10 +10,12 @@
 
 ```
 neptun4hass/
+├── .github/workflows/
+│   └── release.yml                  # Авто GitHub Release при push тега vX.Y.Z
 ├── custom_components/neptun4hass/   # Интеграция HA
 │   ├── __init__.py                  # async_setup_entry / async_unload_entry
-│   ├── manifest.json                # domain: neptun4hass, version: 1.0.0
-│   ├── config_flow.py               # UI: ввод IP → проверка → MAC как unique_id
+│   ├── manifest.json                # domain: neptun4hass, version: 1.0.2
+│   ├── config_flow.py               # UI: обязательные IP+Name → проверка → MAC как unique_id
 │   ├── const.py                     # DOMAIN, порт, типы пакетов, теги, статус-маска
 │   ├── neptun_client.py             # Async TCP клиент протокола Neptun (ядро)
 │   ├── coordinator.py               # DataUpdateCoordinator, опрос каждые 30с
@@ -21,6 +23,11 @@ neptun4hass/
 │   ├── binary_sensor.py             # Датчики протечки (проводные + беспроводные) + alarm
 │   ├── sensor.py                    # Счётчики воды (м³), сигнал, батарея, статус
 │   ├── switch.py                    # Кран (valve), режим уборки (cleaning)
+│   ├── brand/                       # Иконки/логотипы для Home Assistant и HACS
+│   │   ├── icon.png                 # Светлая иконка 256x256
+│   │   ├── dark_icon.png            # Тёмная иконка 256x256
+│   │   ├── logo.png                 # Светлый логотип 600x256
+│   │   └── dark_logo.png            # Тёмный логотип 600x256
 │   ├── strings.json                 # Строки UI
 │   └── translations/{en,ru}.json    # Локализация
 ├── hacs.json                        # Метаданные HACS
@@ -114,6 +121,24 @@ get_system_state → (0.5с) → get_counter_names* → (0.5с) → get_counter_
 - Модель в DeviceInfo: `ProW+ WiFi`
 - Язык кода и комментариев: английский
 - Язык документации: русский (README), английский (CLAUDE.md, код)
+
+## Именование сущностей
+
+- Поле `Name` в `config_flow` обязательно и сохраняется как `config_entry.title`
+- `entity_id` строится от `config_entry.title` (slug) + имени сущности
+- Пример: при `Name = "Neptune ProW"` сущность режима уборки будет `switch.neptune_prow_cleaning_mode`
+- `unique_id` сущностей остаётся стабильным и основан на MAC + ключе сущности
+
+## Релизы и HACS-обновления
+
+- HACS обновления приходят по новым GitHub релизам/тегам
+- Автоматизация релиза: `.github/workflows/release.yml`
+- Триггер: push тега `vX.Y.Z`
+- Workflow валидирует соответствие: тег `vX.Y.Z` ↔ `manifest.json` версия `X.Y.Z`
+- Для понятных заметок релиза использовать аннотированный тег:
+  - `git tag -a v1.0.2 -m "Короткое описание релиза"`
+  - `git push origin v1.0.2`
+- Если тег без сообщения, workflow генерирует краткие notes из последних коммитов
 
 ## Тестирование
 
