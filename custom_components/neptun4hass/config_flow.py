@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -22,6 +24,8 @@ from .const import (
 from .neptun_client import NeptunClient, NeptunConnectionError
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIRM_TIMEOUT_SECONDS = 15.0
 
 
 CONF_LINE_1_COUNTER = "line_1_counter"
@@ -181,9 +185,31 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                     line_in_config=desired_mask,
                 )
 
+                start = time.monotonic()
+                deadline = start + CONFIRM_TIMEOUT_SECONDS
+                last: Any = None
+                last_err: Exception | None = None
                 applied = False
-                for _ in range(3):
-                    updated = await client.get_system_state()
+                attempts = 0
+                while time.monotonic() < deadline and attempts < 10:
+                    attempts += 1
+                    try:
+                        remaining = max(0.1, deadline - time.monotonic())
+                        updated = await asyncio.wait_for(
+                            client.get_system_state(),
+                            timeout=remaining,
+                        )
+                        last = updated
+                        last_err = None
+                    except NeptunConnectionError as err:
+                        last_err = err
+                        # Avoid busy-looping if the device is temporarily unavailable.
+                        await asyncio.sleep(0.5)
+                        continue
+                    except TimeoutError as err:
+                        last_err = err
+                        break
+
                     if (
                         (updated.line_in_config & 0x0F) == (requested_low_mask & 0x0F)
                         and updated.close_on_offline == requested_close
@@ -192,7 +218,29 @@ class Neptun4hassOptionsFlow(OptionsFlow):
                         break
 
                 if not applied:
-                    errors["base"] = "cannot_apply"
+                    elapsed = time.monotonic() - start
+                    if last_err is not None:
+                        _LOGGER.warning(
+                            "Failed to confirm applied options for '%s' (%.1fs, %d attempts): wanted line_in_config=0x%02X close_on_offline=%s; last error: %s",
+                            self._config_entry.title,
+                            elapsed,
+                            attempts,
+                            requested_low_mask & 0x0F,
+                            requested_close,
+                            last_err,
+                        )
+                    elif last is not None:
+                        _LOGGER.warning(
+                            "Device did not confirm applied options for '%s' (%.1fs, %d attempts): wanted line_in_config=0x%02X close_on_offline=%s; got line_in_config=0x%02X close_on_offline=%s",
+                            self._config_entry.title,
+                            elapsed,
+                            attempts,
+                            requested_low_mask & 0x0F,
+                            requested_close,
+                            int(last.line_in_config) & 0x0F,
+                            bool(last.close_on_offline),
+                        )
+                    errors["base"] = "cannot_confirm"
                 else:
                     new_options = dict(self._config_entry.options)
                     new_options[CONF_LINE_IN_CONFIG] = requested_low_mask & 0x0F

@@ -37,6 +37,7 @@
     "error": {
       "cannot_connect": "Cannot connect to the device. Check the IP address and ensure the device is online.",
       "cannot_apply": "Failed to apply settings to the device.",
+      "cannot_confirm": "Settings were sent but the device did not confirm them in time. Please try again.",
       "scan_interval_min": "Polling interval must be at least 5 seconds.",
       "invalid_scan_interval": "Invalid polling interval.",
       "unknown": "An unexpected error occurred."
