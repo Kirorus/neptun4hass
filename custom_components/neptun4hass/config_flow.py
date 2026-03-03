@@ -11,14 +11,19 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_SCAN_INTERVAL
 from homeassistant.core import callback
 
-from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN, MIN_SCAN_INTERVAL
+from .const import (
+    CONF_CLOSE_ON_OFFLINE,
+    CONF_LINE_IN_CONFIG,
+    DEFAULT_PORT,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    MIN_SCAN_INTERVAL,
+)
 from .neptun_client import NeptunClient, NeptunConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
 
-CONF_LINE_IN_CONFIG = "line_in_config"
-CONF_CLOSE_ON_OFFLINE = "close_on_offline"
 CONF_LINE_1_COUNTER = "line_1_counter"
 CONF_LINE_2_COUNTER = "line_2_counter"
 CONF_LINE_3_COUNTER = "line_3_counter"

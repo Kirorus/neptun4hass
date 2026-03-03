@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
 
-from .const import PLATFORMS
+from .const import DOMAIN, PLATFORMS
 from .coordinator import NeptunConfigEntry, NeptunCoordinator
+from .options_sync import async_update_options_mismatch_notification
 from .registry import async_sync_wired_line_entities
 
 
@@ -27,6 +28,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: NeptunConfigEntry) -> bo
     coordinator = NeptunCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    logged: set[str] = domain_data.setdefault("mismatch_logged", set())
+    if coordinator.data is not None:
+        await async_update_options_mismatch_notification(
+            hass,
+            entry,
+            coordinator.data,
+            log_mismatch=entry.entry_id not in logged,
+        )
+        logged.add(entry.entry_id)
+
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

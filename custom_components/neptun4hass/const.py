@@ -2,6 +2,10 @@
 
 DOMAIN = "neptun4hass"
 
+# Options keys
+CONF_LINE_IN_CONFIG = "line_in_config"
+CONF_CLOSE_ON_OFFLINE = "close_on_offline"
+
 DEFAULT_PORT = 6350
 DEFAULT_SCAN_INTERVAL = 30
 MIN_SCAN_INTERVAL = 5
