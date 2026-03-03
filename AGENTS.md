@@ -1,150 +1,145 @@
 # AGENTS.md
 
-Информация о проекте для ИИ-агентов (Claude, Cursor, Copilot, Cline и др.).
+Руководство для агентных кодинг-агентов (Claude/Cursor/Copilot/Cline и т.п.) в репозитории **neptun4hass**.
 
-## Проект
+Интеграция: custom Home Assistant integration для Neptun ProW+ WiFi (SST). Локальный TCP протокол на `:6350`, без облака.
 
-**neptun4hass** — кастомная интеграция Home Assistant для системы защиты от протечек Neptun ProW+ WiFi (производитель SST). Работает по локальному бинарному TCP-протоколу (порт 6350), без облака.
+Правила редактора/ассистента:
+- Cursor rules (`.cursor/rules/`, `.cursorrules`) — нет
+- Copilot rules (`.github/copilot-instructions.md`) — нет
 
-## Структура
+## Команды (Build/Lint/Test)
 
+Быстрые локальные проверки:
+
+```bash
+# Python: синтаксис/импорты
+python3 -m compileall -q custom_components/neptun4hass
+
+# JSON: translations/strings
+python3 -m json.tool custom_components/neptun4hass/strings.json > /dev/null
+python3 -m json.tool custom_components/neptun4hass/translations/en.json > /dev/null
+python3 -m json.tool custom_components/neptun4hass/translations/ru.json > /dev/null
+
+# Git whitespace
+git diff --check
 ```
-neptun4hass/
-├── .github/workflows/
-│   └── release.yml                  # Авто GitHub Release при push тега vX.Y.Z
-├── custom_components/neptun4hass/   # Интеграция HA
-│   ├── __init__.py                  # async_setup_entry / async_unload_entry
-│   ├── manifest.json                # domain: neptun4hass, version: 1.0.3
-│   ├── config_flow.py               # UI: обязательные IP+Name → проверка → MAC как unique_id
-│   ├── const.py                     # DOMAIN, порт, типы пакетов, теги, статус-маска
-│   ├── neptun_client.py             # Async TCP клиент протокола Neptun (ядро)
-│   ├── coordinator.py               # DataUpdateCoordinator, опрос каждые 30с
-│   ├── entity.py                    # Базовый класс NeptunEntity
-│   ├── binary_sensor.py             # Датчики протечки (проводные + беспроводные) + alarm
-│   ├── sensor.py                    # Счётчики воды (м³), сигнал, батарея, статус
-│   ├── switch.py                    # Кран (valve), режим уборки (cleaning)
-│   ├── brand/                       # Иконки/логотипы для Home Assistant и HACS
-│   │   ├── icon.png                 # Светлая иконка 256x256
-│   │   ├── dark_icon.png            # Тёмная иконка 256x256
-│   │   ├── logo.png                 # Светлый логотип 600x256
-│   │   └── dark_logo.png            # Тёмный логотип 600x256
-│   ├── strings.json                 # Строки UI
-│   └── translations/{en,ru}.json    # Локализация
-├── hacs.json                        # Метаданные HACS
-├── test_server.py                   # Мок-сервер протокола Neptun
-├── test_client.py                   # Тест-скрипт для клиента
-├── README.md                        # Документация для пользователей
-├── CLAUDE.md                        # Контекст для Claude Code
-└── AGENTS.md                        # Этот файл
+
+Мок протокола (smoke):
+
+```bash
+python3 test_server.py
+python3 test_client.py 127.0.0.1 6350
 ```
+
+"Один тест" (single run) против реального устройства:
+
+```bash
+python3 test_client.py <IP> 6350
+```
+
+CI в GitHub:
+- `hassfest`: `.github/workflows/hassfest.yml`
+- `hacs/action`: `.github/workflows/hacs.yml`
+
+## Структура репозитория
+
+Код интеграции: `custom_components/neptun4hass/`
+
+Ключевые файлы:
+- `custom_components/neptun4hass/neptun_client.py`: async TCP клиент протокола (CRC, TLV, парсинг)
+- `custom_components/neptun4hass/coordinator.py`: `DataUpdateCoordinator` (polling, кэш, resync)
+- `custom_components/neptun4hass/config_flow.py`: `ConfigFlow` + `OptionsFlow` (IP/Name, опции)
+- `custom_components/neptun4hass/registry.py`: enable/disable сущностей линий по `line_in_config`
+- `custom_components/neptun4hass/options_sync.py`: mismatch options vs device (persistent_notification)
+- `custom_components/neptun4hass/warnings.py`: уведомления (например limited access)
+- `custom_components/neptun4hass/{binary_sensor,sensor,switch}.py`: HA платформы
+- `custom_components/neptun4hass/brand/`: `icon.png`, `dark_icon.png`, `logo.png`, `dark_logo.png` (+ `@2x` варианты)
 
 ## Архитектура
 
-```
-neptun_client.py  →  coordinator.py  →  entity.py  →  binary_sensor.py
-   (TCP-протокол)     (опрос 30с)       (базовый)     sensor.py
-                                                       switch.py
-```
+`neptun_client.py` → `coordinator.py` → `entity.py` → platforms (`binary_sensor.py`, `sensor.py`, `switch.py`).
 
-**Ключевой файл — `neptun_client.py`**. Содержит всю логику протокола:
-- CRC-16/CCITT (полином 0x1021, начальное значение 0xFFFF)
-- Формирование и парсинг бинарных пакетов (TLV-формат для SYSTEM_STATE)
-- Dataclass-ы: `DeviceData`, `WiredSensor`, `WirelessSensor`
-- Методы: `get_system_state()`, `get_counter_names()`, `get_counter_values()`, `get_sensor_names()`, `get_sensor_states()`, `get_full_state()`, `set_state()`
+Данные обновляются через coordinator; сущности берут состояние только из `coordinator.data`.
 
-## Протокол Neptun ProW+ WiFi
+## Протокол (важное)
 
-- **Транспорт**: TCP, порт 6350, каждый запрос — отдельное соединение
-- **Формат запроса**: `[0x02, 0x54, 0x51, тип, размер_hi, размер_lo, ...тело, crc_hi, crc_lo]`
-- **Формат ответа**: `[0x02, 0x54, 0x41, тип, размер_hi, размер_lo, ...тело, crc_hi, crc_lo]`
+- TCP `:6350`, каждый запрос = новое соединение (connect → send → recv → close).
+- CRC16/CCITT (poly `0x1021`, init `0xFFFF`).
+- Запрос: `[0x02, 0x54, 0x51, type, size_hi, size_lo, body..., crc_hi, crc_lo]`
+- Ответ:  `[0x02, 0x54, 0x41, type, size_hi, size_lo, body..., crc_hi, crc_lo]`
 
-### Типы пакетов
+Основные типы:
+- `0x52` SYSTEM_STATE (TLV): device info + flags + wired states
+- `0x63` COUNTER_NAME (CP1251, null-separated)
+- `0x43` COUNTER_STATE (4 bytes value + 1 byte step на линию)
+- `0x4E` SENSOR_NAME (CP1251)
+- `0x53` SENSOR_STATE (signal/line/battery/state)
+- `0x57` SET_SYSTEM_STATE (fire-and-forget, у реального устройства нет ответа)
+- `0xFB` ERROR: устройство отказало в доступе (в коде -> `NeptunAccessDenied`)
 
-| Код | Имя | Описание |
-|-----|-----|----------|
-| `0x52` | SYSTEM_STATE | Информация об устройстве + состояние проводных линий. Ответ — TLV-теги |
-| `0x63` | COUNTER_NAME | Имена проводных линий (CP1251, null-terminated) |
-| `0x43` | COUNTER_STATE | Значения счётчиков (4B значение + 1B шаг на линию) |
-| `0x4E` | SENSOR_NAME | Имена беспроводных датчиков (CP1251, null-terminated) |
-| `0x53` | SENSOR_STATE | Состояние беспроводных (1B сигнал + 1B линия + 1B батарея + 1B статус) |
-| `0x57` | SET_SYSTEM_STATE | Управление: кран, уборка, офлайн, конфиг линий. **Без ответа (fire-and-forget)** |
+SYSTEM_STATE TLV tag `0x53` (7 bytes):
+`valve_open, sensor_count, relay_count, cleaning_mode, close_on_offline, line_in_config, status`.
 
-### TLV-теги в SYSTEM_STATE
+Status bits: `0x01` alarm, `0x02` main battery, `0x04` sensor battery, `0x08` sensor offline.
 
-| Тег | Содержимое |
-|-----|-----------|
-| `0x49` (73) | Тип устройства (2B) + версия прошивки (3B: X.Y.Z) |
-| `0x4E` (78) | Имя устройства (ASCII) |
-| `0x4D` (77) | MAC-адрес (ASCII) |
-| `0x41` (65) | Флаг доступа (1B) |
-| `0x53` (83) | Состояние: кран(1B), кол-во датчиков(1B), реле(1B), уборка(1B), офлайн(1B), конфиг линий(1B), статус(1B) |
-| `0x73` (115) | Состояние проводных линий (4B, по одному на линию) |
+## Опрос (polling)
 
-### Битовая маска статуса
+- Быстрый цикл: `get_system_state` + `get_counter_values` (+ `get_sensor_states`, если есть wireless).
+- Полный опрос: подтягивает имена линий/датчиков. Опция `full_refresh_cycles` делает full refresh раз в N циклов.
+- Если `sensor_count` поменялся — coordinator форсирует full refresh, чтобы пересинхронизировать список wireless.
 
-| Бит | Значение |
-|-----|----------|
-| `0x01` | ALARM — протечка |
-| `0x02` | MAIN_BATTERY — основная батарея разряжена |
-| `0x04` | SENSOR_BATTERY — батарея датчика разряжена |
-| `0x08` | SENSOR_OFFLINE — датчик не на связи |
+Опции (OptionsFlow):
+- `line_in_config`: тип каждой из 4 проводных линий (бит=1 -> counter, 0 -> leak sensor)
+- `close_on_offline`: закрывать краны при офлайне беспроводных датчиков (пишется в устройство)
+- `scan_interval`: интервал опроса coordinator (min 5s, default 30s)
+- `full_refresh_cycles`: полный опрос раз в N циклов (min 1, default 20)
 
-### Цепочка опроса
+## Критические особенности устройства
 
-```
-get_system_state → (0.5с) → get_counter_names* → (0.5с) → get_counter_values → (0.5с) → get_sensor_names* → (0.5с) → get_sensor_states
+- Минимальная пауза между соединениями: `REQUEST_DELAY = 0.5s` (иначе часто `Empty response`).
+- Только одно TCP соединение одновременно: мобильное приложение/другой клиент может ломать опрос.
+- SET требует ВСЕ поля (`valve_open`, `cleaning_mode`, `close_on_offline`, `line_in_config`), не только изменённые.
+- После SET всегда подтверждать изменённые значения чтением `SYSTEM_STATE` с таймаутом.
+- `access=false`/`0xFB`: некоторые запросы (имена/счётчики) могут быть запрещены — не валить всю интеграцию, показывать предупреждение.
 
-* имена кешируются после первого запроса
-```
+## Code Style Guidelines
 
-## Критические особенности (из тестирования на реальном устройстве)
+Python/HA:
+- Только async IO; не делать blocking network/disk внутри HA loop.
+- Соблюдать `DataUpdateCoordinator`: не делать самостоятельные polling loops в entity.
 
-1. **Пауза 0.5с между соединениями** — без неё устройство возвращает пустой ответ или сбрасывает соединение
-2. **SET_SYSTEM_STATE (0x57) — fire-and-forget** — устройство НЕ отправляет ответ. Мок-сервер отвечает, реальное устройство — нет
-3. **Только одно соединение одновременно** — устройство не поддерживает параллельные TCP-сессии
-4. **SET требует ВСЕ поля** — valve, dry, close_on_offline, line_in_config. Нельзя отправить только изменённое
-5. **Таймаут чтения 10с** — устройство может отвечать медленно, особенно после переподключения к WiFi
-6. **Интервал опроса >= 5с** — при более частом опросе устройство может зависнуть. По умолчанию 30с
-7. **Строки в CP1251** — имена датчиков и линий
+Imports/formatting:
+- Порядок imports: stdlib → third-party → `homeassistant.*` → локальные (`from .const import ...`).
+- Без автогенерированных больших комментариев; non-obvious логика — короткий англ. комментарий.
 
-## Источники протокола
+Types/naming:
+- Type hints обязательны для публичных методов, dataclass полей, flow шагов.
+- Keys опций хранить в `custom_components/neptun4hass/const.py`.
+- `unique_id` стабильный: `{mac}_{key}`; не менять без migration.
 
-Протокол реверс-инженирен из двух проектов:
-- **`neptun2mqtt`** (`github.com/ptvoinfo/neptun2mqtt`) — полная реализация протокола на Python (threading/socket). Файл `neptun.py` — основной источник логики парсинга и формирования пакетов. Содержит баг в строке 628: парсинг значений счётчиков использует `data[offset]` для всех 4 байт вместо `data[offset+0..+3]` — исправлено в нашем клиенте.
-- **`neptun_homeassistant`** (`github.com/allovaro/neptun_homeassistant`) — устаревшая HA-интеграция (YAML, без config flow). Использована как альтернативная проверка смещений полей и для тест-сервера.
+Entities:
+- Для проводных линий всегда держим две сущности: `... Leak` и `... Counter`.
+- Включение/выключение актуальной сущности делать через entity registry (`registry.py`), чтобы история не терялась.
 
-## Соглашения
+Error handling/logging:
+- `NeptunConnectionError`: transient; допустимы ретраи на `Empty response`.
+- `NeptunAccessDenied`: продолжать базовый `SYSTEM_STATE`, использовать persistent_notification (`warnings.py`).
+- Логи: info/warn без спама; повторяющиеся проблемы логировать один раз до восстановления.
 
-- Имя интеграции: `neptun4hass` (domain, пакет, HACS, UI title)
-- Имя устройства: `Neptun ProW+ WiFi` (описания, документация, docstrings)
-- Производитель в DeviceInfo: `Neptun/SST`
-- Модель в DeviceInfo: `ProW+ WiFi`
-- Язык кода и комментариев: английский
-- Язык документации: русский (README), английский (CLAUDE.md, код)
+Translations/UI:
+- При добавлении опций/ошибок/полей: обновлять `strings.json` и `translations/en.json`, `translations/ru.json`.
+- Сообщения для пользователя — короткие и понятные; технические детали — в лог.
 
-## Именование сущностей
+## Релизы
 
-- Поле `Name` в `config_flow` обязательно и сохраняется как `config_entry.title`
-- `entity_id` строится от `config_entry.title` (slug) + имени сущности
-- Пример: при `Name = "Neptune ProW"` сущность режима уборки будет `switch.neptune_prow_cleaning_mode`
-- `unique_id` сущностей остаётся стабильным и основан на MAC + ключе сущности
+- Версия в `custom_components/neptun4hass/manifest.json`.
+- Release workflow: `.github/workflows/release.yml`.
+- Тег `vX.Y.Z` должен совпадать с manifest `X.Y.Z`.
 
-## Релизы и HACS-обновления
+## Запуск в Home Assistant
 
-- HACS обновления приходят по новым GitHub релизам/тегам
-- Автоматизация релиза: `.github/workflows/release.yml`
-- Триггер: push тега `vX.Y.Z`
-- Workflow валидирует соответствие: тег `vX.Y.Z` ↔ `manifest.json` версия `X.Y.Z`
-- Для понятных заметок релиза использовать аннотированный тег:
-  - `git tag -a v1.0.2 -m "Короткое описание релиза"`
-  - `git push origin v1.0.2`
-- Если тег без сообщения, workflow генерирует краткие notes из последних коммитов
-
-## Тестирование
-
-```bash
-python3 test_server.py                    # мок-сервер на 127.0.0.1:6350
-python3 test_client.py [host] [port]      # тест клиента (по умолчанию localhost)
-```
-
-Для тестирования в HA: скопировать `custom_components/neptun4hass/` в `config/custom_components/`, перезапустить HA, добавить через UI.
+Для ручного теста в HA:
+- скопировать `custom_components/neptun4hass/` в `<config>/custom_components/`
+- restart HA
+- добавить интеграцию через UI (Config Flow)
