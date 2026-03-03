@@ -1,10 +1,11 @@
 {
   "domain": "neptun4hass",
   "name": "neptun4hass",
-  "codeowners": [],
+  "codeowners": ["@Kirorus"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/Kirorus/neptun4hass",
+  "issue_tracker": "https://github.com/Kirorus/neptun4hass/issues",
   "iot_class": "local_polling",
   "requirements": [],
   "version": "1.0.2"
