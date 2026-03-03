@@ -47,11 +47,9 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[SensorEntity] = []
 
-    # Water counters (wired lines configured as counters)
+    # Water counters (always 4 lines)
     for idx in range(4):
-        sensor = coordinator.data.wired_sensors[idx]
-        if sensor.line_type == "counter":
-            entities.append(NeptunWaterCounter(coordinator, idx))
+        entities.append(NeptunWaterCounter(coordinator, idx))
 
     # Wireless sensor diagnostics
     for idx in range(len(coordinator.data.wireless_sensors)):
@@ -76,9 +74,20 @@ class NeptunWaterCounter(NeptunEntity, SensorEntity):
         super().__init__(
             coordinator,
             f"counter_{index}",
-            sensor.name or f"Counter {index + 1}",
+            f"{sensor.name or f'Line {index + 1}'} Counter",
         )
         self._index = index
+        self._attr_entity_registry_enabled_default = sensor.line_type == "counter"
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        if self.coordinator.data is None:
+            return False
+        return (
+            super().available
+            and self.coordinator.data.wired_sensors[self._index].line_type == "counter"
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -86,6 +95,8 @@ class NeptunWaterCounter(NeptunEntity, SensorEntity):
         if self.coordinator.data is None:
             return None
         sensor = self.coordinator.data.wired_sensors[self._index]
+        if sensor.line_type != "counter":
+            return None
         step = sensor.step if sensor.step > 0 else 1
         return sensor.value / (1000.0 / step)
 

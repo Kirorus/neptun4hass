@@ -26,10 +26,9 @@ async def async_setup_entry(
     # Alarm sensor
     entities.append(NeptunAlarmSensor(coordinator))
 
-    # Wired leak sensors (only lines configured as sensors)
+    # Wired leak sensors (always 4 lines)
     for idx in range(4):
-        if coordinator.data.wired_sensors[idx].line_type == "sensor":
-            entities.append(NeptunWiredSensor(coordinator, idx))
+        entities.append(NeptunWiredSensor(coordinator, idx))
 
     # Wireless sensors
     for idx in range(len(coordinator.data.wireless_sensors)):
@@ -65,14 +64,27 @@ class NeptunWiredSensor(NeptunEntity, BinarySensorEntity):
         super().__init__(
             coordinator,
             f"wired_sensor_{index}",
-            sensor.name or f"Wired sensor {index + 1}",
+            f"{sensor.name or f'Line {index + 1}'} Leak",
         )
         self._index = index
+        self._attr_entity_registry_enabled_default = sensor.line_type == "sensor"
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        if self.coordinator.data is None:
+            return False
+        return (
+            super().available
+            and self.coordinator.data.wired_sensors[self._index].line_type == "sensor"
+        )
 
     @property
     def is_on(self) -> bool | None:
         """Return true if leak detected."""
         if self.coordinator.data is None:
+            return None
+        if self.coordinator.data.wired_sensors[self._index].line_type != "sensor":
             return None
         return self.coordinator.data.wired_sensors[self._index].state != 0
 

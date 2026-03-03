@@ -13,6 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import DEFAULT_PORT, DEFAULT_SCAN_INTERVAL, DOMAIN
 from .neptun_client import DeviceData, NeptunClient, NeptunConnectionError
+from .registry import async_sync_wired_line_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,24 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
             port=entry.data.get("port", DEFAULT_PORT),
         )
         self._names_cached = False
+        self._last_wired_mask: int | None = None
+        self._sync_task: asyncio.Task | None = None
+
+    def _schedule_registry_sync(self, low_mask: int, mac: str) -> None:
+        """Sync entity registry and reload entry if needed."""
+        if self._sync_task is not None and not self._sync_task.done():
+            return
+
+        async def _run() -> None:
+            if await async_sync_wired_line_entities(
+                self.hass,
+                self.config_entry,
+                mac,
+                low_mask,
+            ):
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+        self._sync_task = self.hass.async_create_task(_run())
 
     async def _async_update_data(self) -> DeviceData:
         """Fetch data from device."""
@@ -59,6 +78,15 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
                     device.wireless_sensors = list(self.data.wireless_sensors)
                     await asyncio.sleep(0.5)
                     await self.client.get_sensor_states(device)
+            low_mask = device.line_in_config & 0x0F
+            if self._last_wired_mask is None:
+                self._last_wired_mask = low_mask
+            elif low_mask != self._last_wired_mask:
+                self._last_wired_mask = low_mask
+                mac = self.config_entry.unique_id or device.mac
+                if mac:
+                    self._schedule_registry_sync(low_mask, mac)
+
             return device
         except NeptunConnectionError as err:
             raise UpdateFailed(f"Error communicating with Neptun: {err}") from err
