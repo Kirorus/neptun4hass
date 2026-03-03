@@ -19,8 +19,15 @@ from .const import (
     DOMAIN,
     MIN_SCAN_INTERVAL,
 )
-from .neptun_client import DeviceData, NeptunClient, NeptunConnectionError
+from .neptun_client import (
+    DeviceData,
+    NeptunAccessDenied,
+    NeptunClient,
+    NeptunConnectionError,
+    NeptunProtocolError,
+)
 from .registry import async_sync_wired_line_entities
+from .warnings import async_update_limited_access_notification
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +58,7 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
         self._fast_cycles_since_full = 0
         self._last_wired_mask: int | None = None
         self._sync_task: asyncio.Task | None = None
+        self._limited_access_logged = False
 
     def _schedule_registry_sync(self, low_mask: int, mac: str) -> None:
         """Sync entity registry and reload entry if needed."""
@@ -71,6 +79,7 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
     async def _async_update_data(self) -> DeviceData:
         """Fetch data from device."""
         try:
+            denied: list[str] = []
             refresh_every = int(
                 self.config_entry.options.get(
                     CONF_FULL_REFRESH_CYCLES,
@@ -87,7 +96,57 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
             )
 
             if need_full:
-                device = await self.client.get_full_state()
+                device = await self.client.get_system_state()
+
+                # Try to pull names/values/states, but do not fail the update if
+                # the device denies access.
+                try:
+                    await asyncio.sleep(0.5)
+                    await self.client.get_counter_names(device)
+                except NeptunAccessDenied:
+                    denied.append("COUNTER_NAME")
+                except NeptunProtocolError as err:
+                    _LOGGER.debug("Protocol error in COUNTER_NAME: %s", err)
+
+                try:
+                    await asyncio.sleep(0.5)
+                    await self.client.get_counter_values(device)
+                except NeptunAccessDenied:
+                    denied.append("COUNTER_STATE")
+                except NeptunProtocolError as err:
+                    _LOGGER.debug("Protocol error in COUNTER_STATE: %s", err)
+
+                if device.sensor_count > 0:
+                    try:
+                        await asyncio.sleep(0.5)
+                        await self.client.get_sensor_names(device)
+                    except NeptunAccessDenied:
+                        denied.append("SENSOR_NAME")
+                    except NeptunProtocolError as err:
+                        _LOGGER.debug("Protocol error in SENSOR_NAME: %s", err)
+
+                    try:
+                        await asyncio.sleep(0.5)
+                        await self.client.get_sensor_states(device)
+                    except NeptunAccessDenied:
+                        denied.append("SENSOR_STATE")
+                    except NeptunProtocolError as err:
+                        _LOGGER.debug("Protocol error in SENSOR_STATE: %s", err)
+
+                # If we couldn't fetch names/states, keep cached values where possible.
+                if self.data is not None:
+                    for idx in range(4):
+                        if "COUNTER_NAME" in denied:
+                            device.wired_sensors[idx].name = self.data.wired_sensors[idx].name
+                        device.wired_sensors[idx].line_type = (
+                            "counter" if device.line_in_config & (1 << idx) else "sensor"
+                        )
+                        if "COUNTER_STATE" in denied:
+                            device.wired_sensors[idx].value = self.data.wired_sensors[idx].value
+                            device.wired_sensors[idx].step = self.data.wired_sensors[idx].step
+                    if device.sensor_count > 0 and device.wireless_sensors == []:
+                        device.wireless_sensors = list(self.data.wireless_sensors)
+
                 self._names_cached = True
                 self._fast_cycles_since_full = 0
             else:
@@ -98,27 +157,59 @@ class NeptunCoordinator(DataUpdateCoordinator[DeviceData]):
                 if self.data is not None:
                     prev_count = len(self.data.wireless_sensors)
                     if device.sensor_count != prev_count:
-                        device = await self.client.get_full_state()
-                        self._names_cached = True
-                        self._fast_cycles_since_full = 0
+                        device = await self.client.get_system_state()
+                        self._names_cached = False
+                        self._fast_cycles_since_full = refresh_every  # force full next
                     else:
                         await asyncio.sleep(0.5)
-                        await self.client.get_counter_values(device)
+                        try:
+                            await self.client.get_counter_values(device)
+                        except NeptunAccessDenied:
+                            denied.append("COUNTER_STATE")
+                        except NeptunProtocolError as err:
+                            _LOGGER.debug("Protocol error in COUNTER_STATE: %s", err)
                         # Preserve cached names from previous full state
                         for idx in range(4):
                             device.wired_sensors[idx].name = self.data.wired_sensors[idx].name
                             device.wired_sensors[idx].line_type = (
                                 "counter" if device.line_in_config & (1 << idx) else "sensor"
                             )
+                            if "COUNTER_STATE" in denied:
+                                device.wired_sensors[idx].value = self.data.wired_sensors[idx].value
+                                device.wired_sensors[idx].step = self.data.wired_sensors[idx].step
                         if device.sensor_count > 0:
                             device.wireless_sensors = list(self.data.wireless_sensors)
                             await asyncio.sleep(0.5)
-                            await self.client.get_sensor_states(device)
+                            try:
+                                await self.client.get_sensor_states(device)
+                            except NeptunAccessDenied:
+                                denied.append("SENSOR_STATE")
+                            except NeptunProtocolError as err:
+                                _LOGGER.debug("Protocol error in SENSOR_STATE: %s", err)
                         self._fast_cycles_since_full += 1
                 else:
-                    device = await self.client.get_full_state()
-                    self._names_cached = True
-                    self._fast_cycles_since_full = 0
+                    # No previous cache, do a full refresh next.
+                    device = await self.client.get_system_state()
+                    self._names_cached = False
+                    self._fast_cycles_since_full = refresh_every
+
+            await async_update_limited_access_notification(
+                self.hass,
+                self.config_entry,
+                denied,
+                access_flag=device.access,
+            )
+
+            if denied and not self._limited_access_logged:
+                _LOGGER.warning(
+                    "Device denied access for '%s' (%s). access flag=%s",
+                    self.config_entry.title,
+                    ", ".join(sorted(set(denied))),
+                    device.access,
+                )
+                self._limited_access_logged = True
+            elif not denied and self._limited_access_logged:
+                self._limited_access_logged = False
             low_mask = device.line_in_config & 0x0F
             if self._last_wired_mask is None:
                 self._last_wired_mask = low_mask

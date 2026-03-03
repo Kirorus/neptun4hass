@@ -13,6 +13,7 @@ from .const import (
     PACKET_BACK_STATE,
     PACKET_COUNTER_NAME,
     PACKET_COUNTER_STATE,
+    PACKET_ERROR,
     PACKET_HEADER,
     PACKET_SENSOR_NAME,
     PACKET_SENSOR_STATE,
@@ -122,6 +123,20 @@ class DeviceData:
 
 class NeptunConnectionError(Exception):
     """Connection error."""
+
+
+class NeptunProtocolError(Exception):
+    """Protocol error."""
+
+
+class NeptunAccessDenied(NeptunProtocolError):
+    """Device denied access to requested data."""
+
+
+def _packet_type(response: bytearray) -> int:
+    if len(response) < 4:
+        raise NeptunConnectionError("Response too short")
+    return response[3]
 
 
 class NeptunClient:
@@ -342,6 +357,11 @@ class NeptunClient:
         """Get system state (single request, returns device info + wired states)."""
         request = _build_request(PACKET_SYSTEM_STATE)
         response = await self._send_and_receive(request)
+        ptype = _packet_type(response)
+        if ptype == PACKET_ERROR:
+            raise NeptunAccessDenied("SYSTEM_STATE")
+        if ptype != PACKET_SYSTEM_STATE:
+            raise NeptunProtocolError(f"Unexpected response type 0x{ptype:02X} for SYSTEM_STATE")
         device = DeviceData()
         self._parse_system_state(response, device)
         return device
@@ -350,24 +370,44 @@ class NeptunClient:
         """Get wired line names and update device in-place."""
         request = _build_request(PACKET_COUNTER_NAME)
         response = await self._send_and_receive(request)
+        ptype = _packet_type(response)
+        if ptype == PACKET_ERROR:
+            raise NeptunAccessDenied("COUNTER_NAME")
+        if ptype != PACKET_COUNTER_NAME:
+            raise NeptunProtocolError(f"Unexpected response type 0x{ptype:02X} for COUNTER_NAME")
         self._parse_counter_names(response, device)
 
     async def get_counter_values(self, device: DeviceData) -> None:
         """Get counter values and update device in-place."""
         request = _build_request(PACKET_COUNTER_STATE)
         response = await self._send_and_receive(request)
+        ptype = _packet_type(response)
+        if ptype == PACKET_ERROR:
+            raise NeptunAccessDenied("COUNTER_STATE")
+        if ptype != PACKET_COUNTER_STATE:
+            raise NeptunProtocolError(f"Unexpected response type 0x{ptype:02X} for COUNTER_STATE")
         self._parse_counter_values(response, device)
 
     async def get_sensor_names(self, device: DeviceData) -> None:
         """Get wireless sensor names and update device in-place."""
         request = _build_request(PACKET_SENSOR_NAME)
         response = await self._send_and_receive(request)
+        ptype = _packet_type(response)
+        if ptype == PACKET_ERROR:
+            raise NeptunAccessDenied("SENSOR_NAME")
+        if ptype != PACKET_SENSOR_NAME:
+            raise NeptunProtocolError(f"Unexpected response type 0x{ptype:02X} for SENSOR_NAME")
         self._parse_sensor_names(response, device)
 
     async def get_sensor_states(self, device: DeviceData) -> None:
         """Get wireless sensor states and update device in-place."""
         request = _build_request(PACKET_SENSOR_STATE)
         response = await self._send_and_receive(request)
+        ptype = _packet_type(response)
+        if ptype == PACKET_ERROR:
+            raise NeptunAccessDenied("SENSOR_STATE")
+        if ptype != PACKET_SENSOR_STATE:
+            raise NeptunProtocolError(f"Unexpected response type 0x{ptype:02X} for SENSOR_STATE")
         self._parse_sensor_states(response, device)
 
     async def get_full_state(self) -> DeviceData:
