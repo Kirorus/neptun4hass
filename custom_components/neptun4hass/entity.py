@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -29,3 +31,22 @@ class NeptunEntity(CoordinatorEntity[NeptunCoordinator]):
             model=MODEL,
             sw_version=coordinator.data.version,
         )
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available.
+
+        Home Assistant marks CoordinatorEntity unavailable when a single update
+        fails. The Neptun controller can have transient failures (single-connection
+        limit), so keep entities available for a short grace period.
+        """
+        if self.coordinator.last_update_success:
+            return True
+
+        last_ok = getattr(self.coordinator, "_last_success_monotonic", None)
+        if last_ok is None:
+            return False
+
+        interval = self.coordinator.update_interval.total_seconds() if self.coordinator.update_interval else 30.0
+        grace = max(60.0, interval * 2.5)
+        return (time.monotonic() - float(last_ok)) < grace
